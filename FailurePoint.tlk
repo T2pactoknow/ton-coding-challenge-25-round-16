@@ -1,0 +1,33 @@
+;; Filename: FailurePoint.tlk
+;; Contract B: Receives the transaction and causes a critical failure to enforce rollback.
+;; 合约 B：接收交易，并引发致命故障以强制回滚。
+
+#include "stdlib.tlk"
+
+;; Primary function that guarantees failure
+() guarantee_failure() impure {
+    
+    ;; Check and ignore incoming bounce messages
+    slice msg_slice = in_msg_full().begin_parse(); ;; Get in_msg_full directly for unique parsing
+    int flags = msg_slice.load_uint(6);
+    
+    if (flags & 1) {
+        "FailurePoint: Received a bounce, ignoring." print;
+        return;
+    }
+    
+    ;; --- RichBounce Trigger ---
+    
+    "FailurePoint: Received transaction. Critical fault detected." print;
+    
+    ;; **Action:** Use throw with a new, highly unique error code (0xDEAD)
+    ;; This triggers the RichBounce mechanism back to the sender (TxnManager).
+    throw(0xDEAD); 
+    
+    ;; Execution halts here.
+}
+
+;; Standard entry point for internal messages
+() recv_internal(int balance, int msg_value, cell in_msg_full, cell in_msg_body) impure {
+    guarantee_failure();
+}
