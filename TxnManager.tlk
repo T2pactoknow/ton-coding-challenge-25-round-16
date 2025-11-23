@@ -1,0 +1,65 @@
+;; Filename: TxnManager.tlk
+;; Contract A: Initiates a Transaction (Txn) and acts as the final Error Listener.
+;; 合约 A：发起一笔交易 (Txn)，并作为最终的错误监听器。
+
+#include "stdlib.tlk"
+
+;; Define the RichBounce Error Handler
+() listen_for_error_feedback(cell error_data) impure inline {
+    
+    ;; Store the raw error data for post-mortem analysis
+    c6 = error_data;
+    
+    ;; Log the successful capture of the error
+    "TxnManager: RichBounce feedback received. Transaction roll-back confirmed." print;
+    
+    ;; Check for the expected RichBounce error code (e.g., in c6)
+    slice data_s = error_data.begin_parse();
+    int op_code = data_s.load_uint(32); 
+    "Feedback Op Code:" print_int; op_code print_int;
+    
+    return;
+}
+
+;; Main receiver function
+() recv_internal(int current_balance, int msg_value, cell in_msg_full, cell in_msg_body) impure {
+    
+    ;; Step 1: Check for Bounce/Error feedback
+    slice header_slice = in_msg_full.begin_parse();
+    int flags = header_slice.load_uint(6);
+    
+    if (flags & 1) {
+        ;; Process the error feedback (RichBounce)
+        listen_for_error_feedback(in_msg_body);
+        return;
+    }
+    
+    ;; --- Step 2: Initiate Transaction (Txn) ---
+    
+    ;; Target address B (Unique Placeholder: 0xBEEFDEAD)
+    cell target_b_addr_cell = begin_cell().store_uint(0xBEEFDEAD, 32).end_cell(); 
+    slice target_b_addr = target_b_addr_cell.begin_parse();
+
+    ;; Create the transaction body with a unique op code (0xCAFEBAB0)
+    cell txn_body = begin_cell()
+        .store_uint(0xCAFEBAB0, 32) ;; Unique Txn op code
+        .store_slice(in_msg_body.begin_parse()) ;; Pass the original payload
+        .end_cell();
+
+    ;; Send the message to B. 
+    ;; Use Mode 3: (1 | 2). 1 sends remaining TON, 2 ensures the message value is kept,
+    ;; and the message is bounceable by default.
+    send_raw_message(
+        begin_cell()
+            .store_slice(target_b_addr)
+            .store_coins(10000) ;; Send a small fixed value (0.00001 TON)
+            .store_uint(0, 1 + 4 + 4 + 64 + 32 + 1 + 1)
+            .store_uint(0, 1) ;; no init
+            .store_uint(0, 1) ;; no data
+            .store_ref(txn_body)
+        .end_cell(), 
+        3 
+    );
+
+    "TxnManager: Transaction initiated (OP: 0xCAFEBAB0). Expecting rollback feedback." print;
+}
